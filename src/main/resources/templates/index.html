@@ -87,16 +87,38 @@
             box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
         }
 
-        .api-link {
-            display: inline-block;
-            margin-top: 25px;
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 500;
+        .api-section {
+            margin-top: 40px;
+            text-align: left;
+            border-top: 1px solid #eee;
+            padding-top: 30px;
         }
 
-        .api-link:hover {
-            text-decoration: underline;
+        .api-section h2 {
+            color: #333;
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .api-endpoint {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        .api-endpoint strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .api-endpoint p {
+            font-size: 0.95rem;
+            color: #555;
+            margin-bottom: 0;
+            line-height: 1.4;
         }
 
         @media (max-width: 500px) {
@@ -146,8 +168,26 @@
 
             <a th:href="@{/compress}" class="btn">Start Compressing</a>
             
-            <br>
-            <a href="/api/v1/images/health" class="api-link">API Health Check</a>
+            <div class="api-section">
+                <h2>API Endpoints</h2>
+                <div class="api-endpoint">
+                    <strong>POST /api/v1/images/compress</strong>
+                    <p>Compress image from a multipart form. Best for browser-based uploads.</p>
+                    <p><em>Request:</em> Multipart file with optional `quality` (0.0-1.0)</p>
+                    <p><em>Response:</em> Compressed image file (PNG)</p>
+                </div>
+                <div class="api-endpoint">
+                    <strong>POST /api/v1/images/compress-by-bytes</strong>
+                    <p>Compress image from raw bytes. Best for server-to-server integration.</p>
+                    <p><em>Request:</em> Raw image bytes in body, `Content-Type` header (e.g., `image/jpeg`), optional `filename` and `quality` parameters.</p>
+                    <p><em>Response:</em> Compressed image file (PNG)</p>
+                </div>
+                <div class="api-endpoint">
+                    <strong>GET /api/v1/images/health</strong>
+                    <p>Check the health status of the API.</p>
+                    <p><em>Response:</em> JSON object with status.</p>
+                </div>
+            </div>
         </div>
     </div>
 </body>

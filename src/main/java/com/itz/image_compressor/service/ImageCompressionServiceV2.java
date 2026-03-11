@@ -6,6 +6,7 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.*;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,27 +16,87 @@ import java.util.*;
 @Service("imageCompressionServiceV2")
 public class ImageCompressionServiceV2 {
 
-    private static final float DEFAULT_QUALITY = 0.5f; // Slightly increased for better Median Cut results
+    private static final float DEFAULT_QUALITY = 0.5f;
     private static final int MAX_DIMENSION = 1600;
     private static final int MAX_COLORS = 256;
-    private static final float DITHER_STRENGTH = 0.9f; // Slightly increased dither for better gradients
+    private static final float DITHER_STRENGTH = 0.9f;
 
     public byte[] compressImage(MultipartFile inputFile, Float quality) throws IOException {
         float compressionQuality = (quality != null) ? quality : DEFAULT_QUALITY;
 
-        try (InputStream inputStream = inputFile.getInputStream()) {
+        byte[] originalFileBytes = inputFile.getBytes();
+        String originalContentType = inputFile.getContentType();
+
+        try (InputStream inputStream = new ByteArrayInputStream(originalFileBytes)) {
             BufferedImage originalImage = ImageIO.read(inputStream);
             if (originalImage == null) {
-                throw new IOException("Failed to read image file. Unsupported format or corrupted file.");
+                return originalFileBytes; // Cannot process, return original
             }
 
+            // Always resize first
             BufferedImage resizedImage = resizeImageIfNeeded(originalImage);
-            int numColors = Math.max(16, (int) (MAX_COLORS * compressionQuality));
-            BufferedImage quantizedImage = quantizeImage(resizedImage, numColors);
 
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            ImageIO.write(quantizedImage, "png", outputStream);
-            return outputStream.toByteArray();
+            // Strategy 1: Attempt to create a highly compressed, quantized, indexed PNG
+            byte[] indexedPngBytes = null;
+            try {
+                int numColors = Math.max(16, (int) (MAX_COLORS * compressionQuality));
+                BufferedImage quantizedImage = quantizeImage(resizedImage, numColors);
+                ByteArrayOutputStream quantizedOutputStream = new ByteArrayOutputStream();
+                ImageIO.write(quantizedImage, "png", quantizedOutputStream);
+                indexedPngBytes = quantizedOutputStream.toByteArray();
+            } catch (Exception e) {
+                // Ignore and fall back
+            }
+
+            // Strategy 2: Create a standard, full-color transparent PNG (simple conversion)
+            // This is our fallback if the indexed version looks bad or failed, 
+            // OR if we just want to compare sizes to find the absolute best PNG.
+            byte[] standardPngBytes = null;
+            try {
+                ByteArrayOutputStream simplePngOutputStream = new ByteArrayOutputStream();
+                ImageIO.write(resizedImage, "png", simplePngOutputStream);
+                standardPngBytes = simplePngOutputStream.toByteArray();
+            } catch (Exception e) {
+                 // Ignore
+            }
+            
+            // Decision Logic
+            
+            // 1. If original was PNG, we have a hard baseline: the original file.
+            if (originalContentType != null && originalContentType.equals("image/png")) {
+                long minSize = originalFileBytes.length;
+                byte[] bestBytes = originalFileBytes;
+
+                if (indexedPngBytes != null && indexedPngBytes.length < minSize) {
+                    minSize = indexedPngBytes.length;
+                    bestBytes = indexedPngBytes;
+                }
+                
+                // We typically don't check standardPngBytes here because re-saving a PNG 
+                // usually doesn't make it smaller unless we resized it. 
+                // But since we DID resize (potentially), let's check it too.
+                if (standardPngBytes != null && standardPngBytes.length < minSize) {
+                    bestBytes = standardPngBytes;
+                }
+                
+                return bestBytes;
+            } 
+            
+            // 2. If original was NOT PNG (e.g. JPEG), we MUST return a PNG.
+            // We cannot return the original. We must pick the smaller of our two PNG candidates.
+            else {
+                if (indexedPngBytes == null && standardPngBytes == null) {
+                    // Both failed? Should be impossible, but return original as failsafe.
+                    return originalFileBytes; 
+                }
+                
+                if (indexedPngBytes != null && standardPngBytes != null) {
+                    // Return the smaller of the two PNGs
+                    return (indexedPngBytes.length < standardPngBytes.length) ? indexedPngBytes : standardPngBytes;
+                }
+                
+                return (indexedPngBytes != null) ? indexedPngBytes : standardPngBytes;
+            }
         }
     }
 
@@ -63,13 +124,10 @@ public class ImageCompressionServiceV2 {
         int height = original.getHeight();
         int[] pixels = original.getRGB(0, 0, width, height, null, 0, width);
 
-        // 1. Build Palette using Median Cut algorithm for superior quality
         int[] palette = buildMedianCutPalette(pixels, maxColors);
-
         IndexColorModel colorModel = createIndexColorModel(palette);
         byte[] indexedData = new byte[width * height];
         
-        // Create a copy of pixels for dithering to avoid modifying the original array during iteration
         int[] ditherPixels = Arrays.copyOf(pixels, pixels.length);
 
         for (int y = 0; y < height; y++) {
@@ -109,7 +167,6 @@ public class ImageCompressionServiceV2 {
         byte[] b = new byte[size];
         byte[] a = new byte[size];
 
-        // Index 0 is transparent
         r[0] = 0; g[0] = 0; b[0] = 0; a[0] = 0;
 
         for (int i = 1; i < size; i++) {
@@ -117,10 +174,9 @@ public class ImageCompressionServiceV2 {
             r[i] = (byte) ((rgb >> 16) & 0xFF);
             g[i] = (byte) ((rgb >> 8) & 0xFF);
             b[i] = (byte) (rgb & 0xFF);
-            a[i] = (byte) 255; // Opaque
+            a[i] = (byte) 255;
         }
 
-        // Calculate bits required (1, 2, 4, or 8)
         int bits = 8;
         if (size <= 2) bits = 1;
         else if (size <= 4) bits = 2;
@@ -234,7 +290,8 @@ public class ImageCompressionServiceV2 {
     }
 
     public ImageInfo getImageInfo(MultipartFile file) throws IOException {
-        try (InputStream inputStream = file.getInputStream()) {
+        byte[] fileBytes = file.getBytes();
+        try (InputStream inputStream = new ByteArrayInputStream(fileBytes)) {
             BufferedImage image = ImageIO.read(inputStream);
             if (image == null) throw new IOException("Could not read image");
             return new ImageInfo(file.getOriginalFilename(), file.getSize(), image.getWidth(), image.getHeight(), file.getContentType());

@@ -17,7 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ImageCompressionServiceTest {
 
-    private final ImageCompressionService service = new ImageCompressionService();
+    // Use ImageCompressionServiceV2 for testing the latest logic
+    private final ImageCompressionServiceV2 service = new ImageCompressionServiceV2();
 
     @Test
     void compressImage_ShouldReduceSizeSignificantly() throws IOException {
@@ -77,8 +78,6 @@ class ImageCompressionServiceTest {
         int paletteSize = icm.getMapSize();
         System.out.println("Generated image palette size: " + paletteSize);
 
-        // For quality 0.5, we expect an 8-bit palette.
-        // The in-memory representation might be padded to 256, so we check the range.
         assertTrue(paletteSize > 16 && paletteSize <= 256, "Palette size should be in the 8-bit range (17-256 colors)");
 
         // Compare with the user-provided "img.png"
@@ -86,10 +85,47 @@ class ImageCompressionServiceTest {
         long userImageSize = userImageFile.length();
         System.out.println("User-provided img.png size: " + userImageSize + " bytes");
 
-        // Check if the generated size is in the same ballpark as the user's image
-        // Allowing a 15% tolerance for variations in dithering/palette generation
         double sizeDifference = Math.abs(generatedSize - userImageSize) / (double) userImageSize;
         System.out.println(String.format("Size difference is %.2f%%", sizeDifference * 100));
         assertTrue(sizeDifference < 0.15, "Generated size should be close to the user-provided image size");
+    }
+
+    @Test
+    void compressImage_jpegExample_shouldBeTransparentPng() throws IOException {
+        // Arrange
+        File jpegExampleFile = ResourceUtils.getFile("classpath:jpeg-example.jpeg");
+        byte[] originalContent = Files.readAllBytes(jpegExampleFile.toPath());
+        MockMultipartFile multipartFile = new MockMultipartFile(
+                "file",
+                "jpeg-example.jpeg",
+                "image/jpeg",
+                originalContent
+        );
+
+        long originalSize = originalContent.length;
+        System.out.println("JPEG Example Original size: " + originalSize + " bytes");
+
+        // Act
+        byte[] compressedBytes = service.compressImage(multipartFile, 0.5f); // Using default quality
+        long compressedSize = compressedBytes.length;
+        System.out.println("JPEG Example Compressed size: " + compressedSize + " bytes");
+
+        // Assert
+        assertNotNull(compressedBytes);
+        
+        // 1. Output must be a valid PNG
+        ByteArrayInputStream bis = new ByteArrayInputStream(compressedBytes);
+        BufferedImage compressedImage = ImageIO.read(bis);
+        assertNotNull(compressedImage, "Compressed bytes should form a valid image");
+        assertEquals("png", ImageIO.getImageReaders(bis).next().getFormatName().toLowerCase(), "Output format should be PNG");
+
+        // 2. Output must be transparent (TYPE_INT_ARGB or IndexColorModel with alpha)
+        ColorModel cm = compressedImage.getColorModel();
+        assertTrue(cm.hasAlpha(), "Output image should have an alpha channel (transparency)");
+        
+        // The assertion for size <= originalSize is removed here due to the conflict
+        // with the "always transparent PNG" requirement for JPEG inputs.
+        // The system will now return the smallest possible transparent PNG,
+        // even if it's larger than the original JPEG.
     }
 }

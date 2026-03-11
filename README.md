@@ -78,6 +78,14 @@ The application will start on `http://localhost:8080`
 - `GET /compress` - Compression page
 
 ### REST API
-- `POST /api/compress` - Compress image
+- `POST /api/v1/images/compress` - Compress image from multipart form
   - Request: Multipart file with optional `quality` parameter (0.0-1.0)
-  - Response: Compressed image file
+  - Response: Compressed image file (PNG)
+
+- `POST /api/v1/images/compress-by-bytes` - Compress image from raw bytes (for server-to-server integration)
+  - Request: Raw image bytes in request body
+  - Headers: `Content-Type` (e.g., `image/jpeg`, `image/png`) - **Required**
+  - Parameters:
+    - `filename` (optional): Original filename, used for response header
+    - `quality` (optional): Compression quality (0.0-1.0), defaults to 0.5
+  - Response: Compressed image file (PNG)
