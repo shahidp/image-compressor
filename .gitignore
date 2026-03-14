@@ -12,7 +12,7 @@ target/
 .settings
 .springBeans
 .sts4-cache
-dev_session.md
+#dev_session.md
 ### IntelliJ IDEA ###
 .idea
 *.iws
